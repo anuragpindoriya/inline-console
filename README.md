@@ -2,7 +2,7 @@
 
 See your `console.log` values **right next to the line that logged them**, inside WebStorm. Free and open source (MIT).
 
-Console Ninja only works in VS Code, so WebStorm users ended up running two editors. This plugin brings the same idea to WebStorm. It's written from scratch, with no Console Ninja code.
+Console Ninja only works in VS Code, so WebStorm users ended up running two editors. This plugin brings the same idea to WebStorm. It's written from scratch.
 
 > ⭐ **If this saves you time, please star the repo.** It helps other WebStorm users find it.
 > Ideas, bug reports and pull requests are very welcome. See [Contributing](#contributing).
@@ -22,9 +22,14 @@ Console Ninja only works in VS Code, so WebStorm users ended up running two edit
 
 ## Install
 
-You need WebStorm 2026.2 or newer, and JDK 25 to build the plugin. The build script is PowerShell and has only been tested on Windows.
+You need WebStorm 2026.2 or newer.
 
-**1. Build the plugin**
+**1. Get the plugin zip**
+
+Download `inline-console-<version>.zip` from the [Releases](https://github.com/anuragpindoriya/inline-console/releases) page.
+
+<details>
+<summary>Or build it yourself (JDK 25, Windows PowerShell)</summary>
 
 ```powershell
 .\webstorm\build.ps1
@@ -32,9 +37,11 @@ You need WebStorm 2026.2 or newer, and JDK 25 to build the plugin. The build scr
 
 This creates `webstorm\build\inline-console.zip`. The script finds your WebStorm by itself. If it can't, pass the folder: `.\webstorm\build.ps1 -Ide "C:\Program Files\JetBrains\WebStorm 2026.2"`.
 
+</details>
+
 **2. Install it in WebStorm**
 
-**Settings → Plugins → ⚙ → Install Plugin from Disk…** → pick `inline-console.zip` → restart WebStorm.
+**Settings → Plugins → ⚙ → Install Plugin from Disk…** → pick the zip → restart WebStorm.
 
 **3. Run your app**
 
@@ -149,6 +156,13 @@ cd js && node test.cjs          # self-checks for the npm package (prints "ok")
 |---|---|
 | `webstorm/` | The WebStorm plugin (Java) |
 | `js/` | The `inline-console` npm package: Vite plugin, Next.js wrapper, Node preload, auto-connect |
+| `.github/workflows/` | The build that runs on GitHub |
+
+**Builds and releases.** Every push to `main` builds the plugin on GitHub Actions. The zip is kept on the run's page under **Artifacts**; unzip the download once to get the plugin zip. To publish a release:
+
+1. Go to **Actions → Build plugin → Run workflow**.
+2. Enter a version, for example `0.2.0`.
+3. After a successful build, the workflow commits that version, tags it `v0.2.0`, and publishes a release with the zip attached.
 
 ## Support the project
 
