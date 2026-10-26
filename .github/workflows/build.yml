@@ -1,0 +1,99 @@
+# Builds the WebStorm plugin zip.
+# - Every push to main: build, and keep the zip as a workflow artifact.
+# - Run manually (Actions → Build plugin → Run workflow):
+#   - version left empty: the same plain build.
+#   - version set (e.g. 0.2.0): after a successful build, that version is committed to plugin.xml and
+#     js/package.json, tagged v0.2.0, and published as a GitHub Release with the zip attached. The repo,
+#     the tag and the zip always agree.
+name: Build plugin
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (e.g. 0.2.0). Leave empty for a plain build."
+        required: false
+        default: ""
+
+env:
+  # The WebStorm the plugin compiles against (build 262 = since-build in plugin.xml). Bump the two together.
+  WEBSTORM_VERSION: "2026.2.3"
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: write # a release run commits the version, pushes a tag and creates the release
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set the release version
+        if: inputs.version != ''
+        shell: pwsh
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if ($env:VERSION -notmatch '^\d+\.\d+\.\d+$') { throw "Version must look like 1.2.3, got '$env:VERSION'" }
+          if ($env:GITHUB_REF -ne 'refs/heads/main') { throw "Releases are made from main; this run is on $env:GITHUB_REF" }
+          if (git ls-remote --tags origin "refs/tags/v$env:VERSION") { throw "Tag v$env:VERSION already exists" }
+          $xml = 'webstorm/resources/META-INF/plugin.xml'
+          [IO.File]::WriteAllText($xml, ([IO.File]::ReadAllText($xml) -replace '<version>[^<]*</version>', "<version>$env:VERSION</version>"))
+          $pkg = 'js/package.json'
+          [IO.File]::WriteAllText($pkg, ([IO.File]::ReadAllText($pkg) -replace '"version":\s*"[^"]*"', "`"version`": `"$env:VERSION`""))
+          git diff --stat
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      # ponytail: downloaded on every run (~1 GB from JetBrains' CI mirror, about a minute); cache lib/ if runs get slow
+      - name: Get WebStorm ${{ env.WEBSTORM_VERSION }} to compile against
+        shell: pwsh
+        run: |
+          $zip = Join-Path $env:RUNNER_TEMP 'webstorm.zip'
+          $ide = Join-Path $env:RUNNER_TEMP 'webstorm'
+          curl.exe -sSfL -o $zip "https://cache-redirector.jetbrains.com/intellij-repository/releases/com/jetbrains/intellij/webstorm/webstorm/$env:WEBSTORM_VERSION/webstorm-$env:WEBSTORM_VERSION.zip"
+          New-Item -ItemType Directory -Force $ide | Out-Null
+          # Windows' own bsdtar reads zip files (Git's GNU tar, if it comes first on PATH, doesn't)
+          & "$env:SystemRoot\System32\tar.exe" -xf $zip -C $ide lib product-info.json
+          if ($LASTEXITCODE -ne 0) { throw "couldn't extract WebStorm" }
+          Remove-Item $zip
+
+      - name: Build
+        id: build
+        shell: pwsh
+        env:
+          RELEASE: ${{ inputs.version }}
+        run: |
+          ./webstorm/build.ps1 -Ide (Join-Path $env:RUNNER_TEMP 'webstorm')
+          $version = ([xml](Get-Content webstorm/resources/META-INF/plugin.xml -Raw)).'idea-plugin'.version
+          Move-Item webstorm/build/inline-console.zip "webstorm/build/inline-console-$version.zip"
+          # a plain build is named after its commit, so builds of the same version stay apart
+          $name = if ($env:RELEASE) { "inline-console-$version" } else { "inline-console-$version-$($env:GITHUB_SHA.Substring(0, 7))" }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "artifact=$name" >> $env:GITHUB_OUTPUT
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.build.outputs.artifact }}
+          path: webstorm/build/inline-console-${{ steps.build.outputs.version }}.zip
+          if-no-files-found: error
+
+      - name: Commit the version, tag it and publish the release
+        if: inputs.version != ''
+        shell: pwsh
+        env:
+          VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git diff --quiet
+          if ($LASTEXITCODE -ne 0) { git commit -am "Release v$env:VERSION" }
+          git tag "v$env:VERSION"
+          git push origin HEAD:main "v$env:VERSION"
+          if ($LASTEXITCODE -ne 0) { throw "couldn't push the release commit and tag" }
+          gh release create "v$env:VERSION" "webstorm/build/inline-console-$env:VERSION.zip" --title "Inline Console $env:VERSION" --generate-notes
