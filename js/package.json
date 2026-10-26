@@ -1,0 +1,25 @@
+{
+  "name": "inline-console",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Sends console output with its file:line to the Inline Console WebStorm plugin (Vite plugin, Next.js wrapper, Node preload).",
+  "license": "MIT",
+  "exports": {
+    "./vite": "./vite.mjs",
+    "./next": "./next.cjs",
+    "./register": "./register.cjs",
+    "./webpack-loader": "./webpack-loader.cjs",
+    "./runtime": {
+      "edge-light": "./runtime.noop.cjs",
+      "worker": "./runtime.noop.cjs",
+      "browser": "./runtime.browser.cjs",
+      "default": "./runtime.node.cjs"
+    }
+  },
+  "scripts": {
+    "test": "node test.cjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

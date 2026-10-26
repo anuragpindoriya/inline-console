@@ -1,0 +1,27 @@
+<idea-plugin>
+    <id>dev.inlineconsole</id>
+    <name>Inline Console</name>
+    <version>0.1.0</version>
+    <vendor>Inline Console contributors</vendor>
+    <description><![CDATA[
+      Shows <code>console.log</code>, <code>console.warn</code> and <code>console.error</code> values at the end of
+      the line that produced them, plus an <b>Inline Console</b> tool window with every entry and its file:line link.
+      Works with Vite, Next.js and plain Node apps through the <code>inline-console</code> npm package.
+      Hover a value to see every value that line logged, in full, with copy.
+      Vite and Next.js projects connect with no config change (Auto-Connect, on by default in the tool window).
+    ]]></description>
+
+    <!-- compiled against WebStorm 2026.2 (Java 25 bytecode) -->
+    <idea-version since-build="262"/>
+    <depends>com.intellij.modules.platform</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <editor.linePainter implementation="dev.inlineconsole.InlineLinePainter"/>
+        <toolWindow id="Inline Console" anchor="bottom" icon="AllIcons.Debugger.Console"
+                    factoryClass="dev.inlineconsole.LogToolWindowFactory"/>
+    </extensions>
+
+    <applicationListeners>
+        <listener class="dev.inlineconsole.Startup" topic="com.intellij.ide.AppLifecycleListener"/>
+    </applicationListeners>
+</idea-plugin>

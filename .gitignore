@@ -1,0 +1,3 @@
+webstorm/build/
+node_modules/
+*.tgz
