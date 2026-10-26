@@ -41,7 +41,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public final class LogStore implements Disposable {
     /** values: each console argument in full (objects as pretty JSON); text: the one-line console rendering. */
     public record Entry(String kind, @Nullable String file, int line, String text, List<String> values,
-                        @Nullable String stack, long ts, String source, int hits) {}
+                        @Nullable String stack, long ts, String source, int hits) {
+        Entry withHits(int count) {
+            return new Entry(kind, file, line, text, values, stack, ts, source, count);
+        }
+    }
 
     public interface Listener {
         void added(Entry entry);
@@ -158,6 +162,32 @@ public final class LogStore implements Disposable {
             Collections.reverse(copy);
             return copy;
         }
+    }
+
+    /** Forgets every value logged at this line (inline value and popup); the tool window keeps its log. */
+    public void clearLine(String path, int line) {
+        Map<Integer, ArrayDeque<Entry>> lines = latest.get(key(path));
+        if (lines != null && lines.remove(line) != null) repaintLater(key(path));
+    }
+
+    /** Forgets one value logged at this line. Every newer value counted it, so their ×N drops by one. */
+    public void remove(String path, int line, Entry entry) {
+        Map<Integer, ArrayDeque<Entry>> lines = latest.get(key(path));
+        ArrayDeque<Entry> entries = lines == null ? null : lines.get(line);
+        if (entries == null) return;
+        synchronized (entries) {
+            List<Entry> kept = new ArrayList<>();
+            boolean newer = false;
+            for (Entry e : entries) {
+                if (e == entry) newer = true; // the same object: two identical logs are still two values
+                else kept.add(newer ? e.withHits(e.hits() - 1) : e);
+            }
+            if (!newer) return;
+            entries.clear();
+            entries.addAll(kept);
+            if (entries.isEmpty()) lines.remove(line, entries);
+        }
+        repaintLater(key(path));
     }
 
     private @Nullable ArrayDeque<Entry> lineEntries(String path, int line) {

@@ -10,7 +10,7 @@ Console Ninja only works in VS Code, so WebStorm users ended up running two edit
 ## What you get
 
 - **Values inline.** `console.log`, `info`, `warn`, `error` and `debug` values show at the end of their line. A line that runs often shows its latest value and a `×N` count.
-- **Full values on hover.** Hover a value to see its last 50 values in full, with pretty JSON. Use **Copy** for one value or **Copy all** for every one.
+- **Full values on hover.** Hover a value to see its last 50 values in full, with pretty JSON. Use **Copy** for one value or **Copy all** for every one. Remove a value with its **×** (or the Delete key), or all of the line's values with **Clear line**.
 - **A log window.** The **Inline Console** tool window lists every entry with a clickable `file:line`.
 - **Errors where they happen.** Uncaught errors show on the line that threw.
 

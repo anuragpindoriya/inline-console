@@ -1,5 +1,6 @@
 package dev.inlineconsole;
 
+import com.intellij.icons.AllIcons;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
@@ -19,13 +20,16 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.popup.JBPopup;
 import com.intellij.openapi.ui.popup.JBPopupFactory;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.ui.CollectionListModel;
 import com.intellij.ui.EditorTextField;
 import com.intellij.ui.OnePixelSplitter;
 import com.intellij.ui.ColoredListCellRenderer;
 import com.intellij.ui.SimpleTextAttributes;
 import com.intellij.ui.awt.RelativePoint;
+import com.intellij.ui.render.RenderingUtil;
 import com.intellij.ui.components.JBLabel;
 import com.intellij.ui.components.JBList;
 import com.intellij.ui.components.JBScrollPane;
@@ -34,26 +38,35 @@ import com.intellij.util.ui.JBUI;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import javax.swing.AbstractAction;
 import javax.swing.JButton;
 import javax.swing.JComponent;
 import javax.swing.JList;
 import javax.swing.JPanel;
+import javax.swing.KeyStroke;
+import javax.swing.ListCellRenderer;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import java.awt.BorderLayout;
 import java.awt.Component;
+import java.awt.Cursor;
 import java.awt.FlowLayout;
 import java.awt.Point;
 import java.awt.Rectangle;
 import java.awt.datatransfer.StringSelection;
+import java.awt.event.ActionEvent;
+import java.awt.event.KeyEvent;
+import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.time.Instant;
 import java.util.List;
+import java.util.function.IntConsumer;
 import java.util.stream.Collectors;
 
 /**
  * Hovering (or clicking) the inline value after a line's code opens that line's recent values:
  * a list, newest first, and the selected value in full (objects as pretty JSON), with Copy / Copy all.
+ * Each row has a delete button (or the Delete key); Clear line forgets all of the line's values.
  */
 final class ValuesPopup implements EditorMouseMotionListener, EditorMouseListener {
     private record Target(Editor editor, VirtualFile file, int line, Point point) {
@@ -138,17 +151,70 @@ final class ValuesPopup implements EditorMouseMotionListener, EditorMouseListene
     private void show(Target target) {
         Editor editor = target.editor();
         Project project = editor.getProject();
-        List<LogStore.Entry> entries = LogStore.getInstance().values(target.file().getPath(), target.line());
+        LogStore store = LogStore.getInstance();
+        String path = target.file().getPath();
+        List<LogStore.Entry> entries = store.values(path, target.line());
         if (entries.isEmpty() || project == null || editor.isDisposed()) return;
         if (popup != null) popup.cancel();
+        Ref<JBPopup> self = new Ref<>();
 
-        JBList<LogStore.Entry> list = new JBList<>(entries);
-        list.setCellRenderer(new ColoredListCellRenderer<>() {
+        CollectionListModel<LogStore.Entry> model = new CollectionListModel<>(entries);
+        JBList<LogStore.Entry> list = new JBList<>(model) {
             @Override
-            protected void customizeCellRenderer(@NotNull JList<? extends LogStore.Entry> l, LogStore.Entry e, int index,
-                                                 boolean selected, boolean focused) {
-                append(time(e) + "   ", SimpleTextAttributes.GRAYED_ATTRIBUTES);
-                append(oneLine(e.text()));
+            public boolean getScrollableTracksViewportWidth() {
+                return true; // long rows get cut, so each row's delete button stays in view
+            }
+        };
+        list.setExpandableItemsEnabled(false); // the full-row tooltip would cover the delete button
+        RowRenderer rows = new RowRenderer();
+        list.setCellRenderer(rows);
+        JBLabel count = new JBLabel(countText(entries));
+
+        // the store renumbers newer values after a delete, so the list is reloaded from it
+        IntConsumer delete = index -> guarded("delete the value", () -> {
+            if (index < 0 || index >= model.getSize()) return;
+            store.remove(path, target.line(), model.getElementAt(index));
+            List<LogStore.Entry> fresh = store.values(path, target.line());
+            if (fresh.isEmpty()) {
+                self.get().cancel();
+                return;
+            }
+            model.replaceAll(fresh);
+            list.setSelectedIndex(Math.min(index, fresh.size() - 1));
+            count.setText(countText(fresh));
+        });
+        MouseAdapter deleteButtons = new MouseAdapter() {
+            @Override
+            public void mouseMoved(MouseEvent ev) {
+                guarded("track the delete buttons", () -> {
+                    int index = deleteButtonAt(list, ev.getPoint());
+                    if (index != rows.hovered) {
+                        rows.hovered = index;
+                        list.repaint();
+                    }
+                    list.setCursor(Cursor.getPredefinedCursor(index >= 0 ? Cursor.HAND_CURSOR : Cursor.DEFAULT_CURSOR));
+                });
+            }
+
+            @Override
+            public void mouseExited(MouseEvent ev) {
+                rows.hovered = -1;
+                list.repaint();
+            }
+
+            @Override
+            public void mouseClicked(MouseEvent ev) {
+                int index = deleteButtonAt(list, ev.getPoint());
+                if (index >= 0) delete.accept(index);
+            }
+        };
+        list.addMouseListener(deleteButtons);
+        list.addMouseMotionListener(deleteButtons);
+        list.getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_DELETE, 0), "inlineConsole.deleteValue");
+        list.getActionMap().put("inlineConsole.deleteValue", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent ev) {
+                delete.accept(list.getSelectedIndex());
             }
         });
         EditorTextField viewer = new EditorTextField(EditorFactory.getInstance().createDocument(""), project,
@@ -176,20 +242,23 @@ final class ValuesPopup implements EditorMouseMotionListener, EditorMouseListene
             if (selected != null) copy(fullText(selected));
         }));
         JButton copyAll = new JButton("Copy all");
-        copyAll.addActionListener(ev -> guarded("copy all values", () -> copy(entries.stream()
+        copyAll.addActionListener(ev -> guarded("copy all values", () -> copy(model.getItems().stream()
                 .map(e -> "// " + time(e) + "\n" + fullText(e))
                 .collect(Collectors.joining("\n\n")))));
+        JButton clear = new JButton("Clear line");
+        clear.setToolTipText("Remove every value logged at this line. The Inline Console tab keeps its log.");
+        clear.addActionListener(ev -> guarded("clear the line", () -> {
+            store.clearLine(path, target.line());
+            self.get().cancel();
+        }));
 
-        int hits = entries.get(0).hits();
-        String count = hits > entries.size()
-                ? "Latest " + entries.size() + " of " + hits + " values, newest first"
-                : entries.size() + (entries.size() == 1 ? " value" : " values, newest first");
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, JBUI.scale(6), 0));
         buttons.add(copy);
         buttons.add(copyAll);
+        buttons.add(clear);
         JPanel bottom = new JPanel(new BorderLayout());
         bottom.setBorder(JBUI.Borders.empty(4, 8));
-        bottom.add(new JBLabel(count), BorderLayout.WEST);
+        bottom.add(count, BorderLayout.WEST);
         bottom.add(buttons, BorderLayout.EAST);
 
         OnePixelSplitter split = new OnePixelSplitter(true, 0.3f);
@@ -210,10 +279,59 @@ final class ValuesPopup implements EditorMouseMotionListener, EditorMouseListene
                 .setCancelOnMouseOutCallback(ev -> !overLine(target, ev) && !nearPopup(target, panel, ev))
                 .setDimensionServiceKey(project, "InlineConsole.Values", false)
                 .createPopup();
+        self.set(popup);
         popupKey = target.key();
         int belowLine = editor.logicalPositionToXY(new LogicalPosition(target.line(), 0)).y;
         popup.show(new RelativePoint(editor.getContentComponent(), new Point(target.point().x, belowLine)));
         scrollToTop(viewer);
+    }
+
+    private static String countText(List<LogStore.Entry> entries) {
+        int hits = entries.get(0).hits();
+        return hits > entries.size()
+                ? "Latest " + entries.size() + " of " + hits + " values, newest first"
+                : entries.size() + (entries.size() == 1 ? " value" : " values, newest first");
+    }
+
+    /** A value's row: its time and one-line text, then a delete button. */
+    private static final class RowRenderer implements ListCellRenderer<LogStore.Entry> {
+        static final int DELETE_WIDTH = 28; // icon plus padding, before scaling
+        private final ColoredListCellRenderer<LogStore.Entry> text = new ColoredListCellRenderer<>() {
+            @Override
+            protected void customizeCellRenderer(@NotNull JList<? extends LogStore.Entry> l, LogStore.Entry e, int index,
+                                                 boolean selected, boolean focused) {
+                append(time(e) + "   ", SimpleTextAttributes.GRAYED_ATTRIBUTES);
+                append(oneLine(e.text()));
+            }
+        };
+        private final JBLabel delete = new JBLabel();
+        private final JPanel row = new JPanel(new BorderLayout());
+        int hovered = -1; // row whose delete button is under the mouse
+
+        RowRenderer() {
+            delete.setBorder(JBUI.Borders.empty(0, 6));
+        }
+
+        @Override
+        public Component getListCellRendererComponent(JList<? extends LogStore.Entry> list, LogStore.Entry e, int index,
+                                                      boolean selected, boolean focused) {
+            Component cell = text.getListCellRendererComponent(list, e, index, selected, focused);
+            row.removeAll();
+            row.add(cell, BorderLayout.CENTER);
+            row.add(delete, BorderLayout.EAST);
+            // from the list, not the cell: an unselected cell is see-through and still reports the last selected color
+            row.setBackground(RenderingUtil.getBackground(list, selected));
+            delete.setIcon(index == hovered ? AllIcons.Actions.CloseHovered : AllIcons.Actions.Close);
+            row.setToolTipText(index == hovered ? "Delete this value (Delete key)" : null);
+            return row;
+        }
+    }
+
+    // index of the row whose delete button is under the point, or -1
+    private static int deleteButtonAt(JList<?> list, Point p) {
+        int index = list.locationToIndex(p);
+        Rectangle row = index < 0 ? null : list.getCellBounds(index, index);
+        return row != null && row.contains(p) && p.x >= row.x + row.width - JBUI.scale(RowRenderer.DELETE_WIDTH) ? index : -1;
     }
 
     // the viewer's editor is created lazily, so scroll once it exists
