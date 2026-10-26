@@ -1,61 +1,89 @@
 # Inline Console for WebStorm
 
-Shows `console.log` / `info` / `warn` / `error` / `debug` values at the end of the line that produced them, right in WebStorm, plus an **Inline Console** tool window with every entry and a clickable `file:line`. Uncaught errors land on the line that threw.
+See your `console.log` values **right next to the line that logged them**, inside WebStorm. Free and open source (MIT).
 
-Written from scratch and MIT-licensed (see [LICENSE](LICENSE)).
+Console Ninja only works in VS Code, so WebStorm users ended up running two editors. This plugin brings the same idea to WebStorm. It's written from scratch, with no Console Ninja code.
 
-```
-your app (browser or Node) ──► dev server / preload ──► POST 127.0.0.1:47321/log ──► WebStorm plugin
-```
+> ⭐ **If this saves you time, please star the repo.** It helps other WebStorm users find it.
+> Ideas, bug reports and pull requests are very welcome. See [Contributing](#contributing).
 
-| Folder | What it is |
+## What you get
+
+- **Values inline.** `console.log`, `info`, `warn`, `error` and `debug` values show at the end of their line. A line that runs often shows its latest value and a `×N` count.
+- **Full values on hover.** Hover a value to see its last 50 values in full, with pretty JSON. Use **Copy** for one value or **Copy all** for every one.
+- **A log window.** The **Inline Console** tool window lists every entry with a clickable `file:line`.
+- **Errors where they happen.** Uncaught errors show on the line that threw.
+
+| Your app | Setup needed |
 |---|---|
-| `webstorm/` | The WebStorm plugin (Java, built with plain `javac`) |
-| `js/` | The `inline-console` npm package: Vite plugin (`inline-console/vite`), Next.js wrapper (`inline-console/next`) and Node preload (`inline-console/register`) |
+| Vite (React, Vue, …), including Vite+ | **None.** It connects automatically |
+| Next.js (Turbopack or webpack) | **None.** It connects automatically |
+| Node (Express, scripts) | One flag. See [Node apps](#node-apps) |
 
-## 1. Install the WebStorm plugin
+## Install
+
+You need WebStorm 2026.2 or newer, and JDK 25 to build the plugin. The build script is PowerShell and has only been tested on Windows.
+
+**1. Build the plugin**
 
 ```powershell
-.\webstorm\build.ps1            # finds your WebStorm install; or pass -Ide "<path to WebStorm>"
+.\webstorm\build.ps1
 ```
 
-Then in WebStorm 2026.2: **Settings → Plugins → ⚙ → Install Plugin from Disk…** → `webstorm\build\inline-console.zip`, and restart. Open **View → Tool Windows → Inline Console**: its first line says whether the server is listening on `127.0.0.1:47321`.
+This creates `webstorm\build\inline-console.zip`. The script finds your WebStorm by itself. If it can't, pass the folder: `.\webstorm\build.ps1 -Ide "C:\Program Files\JetBrains\WebStorm 2026.2"`.
 
-## 2. Install the npm package in your app
+**2. Install it in WebStorm**
 
-Not needed for Vite or Next.js with auto-connect (steps 3 and 4). For Node, for the manual setups, and until the package is published to a registry, install it as a real copy:
+**Settings → Plugins → ⚙ → Install Plugin from Disk…** → pick `inline-console.zip` → restart WebStorm.
+
+**3. Run your app**
+
+Open your project in WebStorm and start your dev server as usual (`npm run dev`). The terminal shows:
+
+```
+[Inline Console] ● connected to WebStorm on 127.0.0.1:47321 · vite (auto)
+```
+
+Open the app in the browser, and values appear next to your code. That's all you need for Vite and Next.js.
+
+## Node apps
+
+Node needs the npm package. It isn't on npm yet, so build it from this repo:
 
 ```bash
-cd js && npm pack                              # creates inline-console-<version>.tgz
-cd <your app> && npm i -D <path>/inline-console-<version>.tgz
+cd js && npm pack                                  # creates inline-console-0.1.0.tgz
+cd <your app> && npm i -D <path>/inline-console-0.1.0.tgz
 ```
 
-## 3. Browser apps on Vite
+Then start your app with the preload:
 
-**Zero-config (default).** Nothing to install or add: open the project in WebStorm and (re)start the dev server. The terminal says `● connected to WebStorm … · vite (auto)` and the tab says `ℹ Auto-connect: hooked node_modules/vite/bin/vite.js`.
+```bash
+node --require inline-console/register server.js
+```
 
-How it works:
+Or set `NODE_OPTIONS=--require inline-console/register` in a WebStorm run configuration. For TypeScript, keep source maps on (`tsx`, `ts-node`, or `node --enable-source-maps`) so line numbers match.
 
-- **The entry line.** The plugin adds one marked line at the top of the project's Vite entry: `node_modules/vite/bin/vite.js`, or `node_modules/vite/dist/vite/bin/vite.js` for Vite+ (`vp dev`). It works the same way however the dev server starts: terminal, run configuration, or a script that spawns it. Console Ninja does the same kind of entry-file patch.
+## Nothing showing up?
 
-  ```js
-  /* inline-console:auto */ try { await import("file:///…/plugins/inline-console/js/auto.mjs"); } catch {} /* inline-console:auto-end */
-  ```
+Look at the **Inline Console** tab first. Its title tells you the state:
 
-- **The config hook.** Inside the Vite process, that module hooks the moment Vite loads its config and adds `inlineConsole()` to the plugins **in memory**. `vite.config` is never touched. `vite build` and `vite preview` are left alone.
-- **Re-checks.** The line is checked every 10 s, so it comes back after `npm install` replaces `node_modules/vite`.
-- **Turning it off.** Click the ⚡ **Auto-Connect Vite and Next.js** toggle in the tab's toolbar: the line is removed from every open project. Or set `INLINE_CONSOLE_AUTO=0` for a single run.
-- **Safe if the plugin goes away.** If you uninstall the plugin, the line stays behind but does nothing: the import fails inside `try`, and Vite starts as usual. Turn the toggle off before uninstalling to remove it, or reinstall `vite`.
+| Tab title | What to do |
+|---|---|
+| `waiting for a dev server` | Restart the dev server after installing the plugin, then open the app so some `console.log` calls run |
+| `vite (auto) connected`, `next.js (auto) connected`, … | It's working. Run the code that logs |
+| `not listening` | Another program is using port 47321. Close it, or set `INLINE_CONSOLE_PORT` for both WebStorm and the app |
 
-Limits:
+Also check:
 
-- Only the project root's `node_modules` is hooked. In a monorepo with per-app installs, use the manual setup below.
-- Node needs 18.19+ or 20.6+ to hook config loading. On older versions the terminal says why and Vite runs unchanged.
+- **Start the dev server from the project folder.** Auto-connect only hooks the project root's `node_modules`. For a monorepo app in a subfolder, use the [manual setup](#manual-setup-optional).
+- **Lines marked `⚠ Inline Console problem`** in the tab explain anything that went wrong.
 
-**Manual setup** (for teammates without the plugin's auto-connect, or for Vite outside the project root). Add the plugin to `vite.config.js`. It only runs on the dev server (`apply: 'serve'`), so build output is untouched. Using both is fine: only one copy runs.
+## Manual setup (optional)
+
+Use this when auto-connect can't reach your app (a monorepo, `next dev <dir>`), or for teammates who don't have the plugin. Install the npm package as shown in [Node apps](#node-apps), then add one line to your config. Using it together with auto-connect is fine: only one copy runs.
 
 ```js
-import { defineConfig } from "vite";
+// vite.config.js
 import inlineConsole from "inline-console/vite";
 
 export default defineConfig({
@@ -63,124 +91,70 @@ export default defineConfig({
 });
 ```
 
-Run your dev server as usual. Values from the browser travel over Vite's own HMR websocket to the dev server, which forwards them to WebStorm. So it also works inside desktop webviews (Tauri, Electron) without any CSP or CORS changes.
-
-## 4. Next.js (webpack or Turbopack)
-
-Tested on a throwaway Next.js 16 App Router app, with both Turbopack and `--webpack`. Not yet tried on a real app.
-
-**Zero-config (default).** Same as Vite: open the project in WebStorm and (re)start `next dev`. The terminal says `● connected to WebStorm … · next.js (auto)`.
-
-How it works:
-
-- **The entry line.** The plugin adds one marked line to `node_modules/next/dist/bin/next`, just after its `"use strict"`. That file is CommonJS, so the line uses `require(…)` instead of `import()`. It loads `js/auto-next.cjs`.
-- **A copy inside the app.** In the `next` process, `auto-next.cjs` copies the package into the app's `node_modules/inline-console`, with a `.inline-console-auto` marker file:
-  - Turbopack only loads loaders and modules from inside the project.
-  - Rewritten files import `inline-console/runtime`.
-
-  A copy you installed yourself, without the marker, is used as is and never overwritten. `npm install` may delete our copy; it comes back on the next `next dev` start or dev-server restart.
-- **The config hook.** `next dev` forks a separate dev server process. Only that one process gets `--require` of the copy, not every child. It hooks the moment Next loads `next.config` (`.ts`, `.mjs` or `.js`) and wraps it with `withInlineConsole()` **in memory**. `next.config` is never touched.
-- **What's left alone:** `next build`, `next start`, and runs with `INLINE_CONSOLE_AUTO=0`.
-- **Both setups at once:** if `next.config` already uses `withInlineConsole()`, only that one runs; nothing is rewritten twice.
-
-Limits:
-
-- Run `next dev` from the app's folder: `next dev <dir>` from elsewhere isn't hooked.
-- Only the project root's `node_modules/next` is hooked.
-
-**Manual setup.** With the package installed, wrap the config. It only activates for `next dev`; builds are untouched:
-
 ```js
 // next.config.mjs
 import withInlineConsole from "inline-console/next";
 
 export default withInlineConsole({
-    // your existing config (an object or a (phase) => config function)
+    /* your existing config */
 });
 ```
 
-How it works:
+## How it works
 
-- **Loader.** A loader runs on your original source before SWC and tags each `console.*` call with its file:line. It's added to webpack as a `pre` rule and to Turbopack as `turbopack.rules` (`experimental.turbo` on Next 15.0–15.2).
-- **Runtime per bundle.** Each rewritten file imports `inline-console/runtime`, and the package's export conditions pick the runtime:
-  - **Browser code:** posts straight to WebStorm on `127.0.0.1:47321`, as a plain-text request that needs no CORS setup.
-  - **Server code** (server components, API routes, SSR): uses the same runtime as the Node preload, so no `NODE_OPTIONS` is needed.
-  - **Edge code** (middleware): left alone; edge has no Node APIs to send with.
+- **Auto-connect.** The plugin adds one marked line to the entry file of Vite (`node_modules/vite/…/bin/vite.js`) or Next.js (`node_modules/next/dist/bin/next`). When the dev server starts, that line adds Inline Console to your config **in memory**. Your `vite.config` / `next.config` is never edited.
+- **Rewriting calls.** While serving your code, the dev server tags each `console.*` call with its file and line. The values travel to WebStorm on `127.0.0.1:47321`, and only on your machine.
+- **Dev only.** `vite build` and `next build` are never touched.
+- **Turning it off.** Click the ⚡ toggle in the Inline Console tab to remove the line from your projects, or set `INLINE_CONSOLE_AUTO=0` for one run.
 
-For the manual setup, install it as a real copy (step 2): Turbopack may refuse a symlinked `file:` install outside the project root.
-
-Known gaps:
-- Uncaught browser errors arrive without a file:line (they show in the tool window with their stack).
-- A Turbopack rule you already have for the same extension (e.g. `*.tsx`) takes precedence; a warning is printed.
-- Opening the app via a LAN IP instead of `localhost` can make Chrome block the request to `127.0.0.1`.
-
-## 5. Node apps (Express, scripts, tsx)
-
-Preload the hook:
-
-```bash
-node --require inline-console/register server.js
-```
-
-Or set it once for a terminal or a WebStorm run configuration's environment:
-
-```bash
-NODE_OPTIONS="--require inline-console/register"
-```
-
-Line numbers come from the call stack, so TypeScript needs source maps on (`tsx`, `ts-node`, or `node --enable-source-maps`).
-
-## Good to know
-
-- **Status in your dev terminal:** a colored `Inline Console` line shows whether the dev server reached WebStorm:
-  - `● connected to WebStorm on 127.0.0.1:47321 · vite`
-  - `○ WebStorm isn't listening …`
-  - `○ lost WebStorm …`
-
-  It prints only when that state changes, once per terminal, so `npm` → `node` won't repeat it. Set `NO_COLOR` for plain text, or `FORCE_COLOR=1` to keep colors in piped output.
-- **Port:** the default is `47321`. Set `INLINE_CONSOLE_PORT` for both WebStorm and the app to change it.
-- **WebStorm not running:** entries are dropped silently, and the app is never slowed down or broken.
-- **Editing a file** clears its inline values, because lines shift. They come back the next time the code runs (HMR).
-- **Repeated lines:** a line that logs repeatedly shows the latest value and a `×N` count. The tool window keeps every entry (the last 5000).
-- **Full values:** hover (or click) the value at the end of a line to open its last 50 values, newest first. Objects show as pretty JSON with highlighting and folding. **Copy** copies the selected value and **Copy all** copies every one. Each argument is captured up to 100,000 characters, and arrays and objects up to 1,000 items.
-- **Not covered yet:** `.vue` / `.svelte` files. In browser DevTools, the column (not the line) of a rewritten `console` call can be off by the length of the inserted prefix.
-
-## Your app is never at risk
+## Your app is safe
 
 A failure inside Inline Console never breaks, freezes or changes your app:
 
-- **Rewritten calls can't throw.** `console.log(...__icAt(file, line), x)` uses a function that never throws and always returns `[]`. If our runtime is missing entirely, `?.` / `??` make the call a plain `console.log(x)`.
-- **Your console call always runs,** even when capturing its value fails. Console methods that don't exist are left alone.
-- **Getters are never run.** Logging an object shows accessors as `[Getter]`, so lazy-loading or tracking getters don't fire just because you logged.
-- **No freezes or leaks:**
-  - capture is cut off at 12 levels deep and 20,000 values per argument
-  - a `toJSON()` that logs can't loop back into the capture
-  - entries waiting for a connection are capped at 1,000
-- **Builds never fail because of us:**
-  - Vite re-parses every file it rewrites and serves the original if the rewrite would break it
-  - the Next.js loader skips files (and says why) when the app can't resolve the package
-- **You still find out:** each problem prints once as `[inline-console] … Your app is unaffected.` in the browser console (or stderr for Node), and goes to the WebStorm tab.
+- **Your `console.log` always runs,** even if capturing its value fails.
+- **No surprise side effects.** Getters on logged objects are never called, and huge or circular values are cut off.
+- **Files are never broken.** A file that can't be rewritten safely is served untouched.
+- **Nothing breaks when WebStorm is closed.** Logs are simply dropped.
+- **Removing the plugin is safe.** The auto-connect line fails quietly, and your dev server runs as usual.
 
-## When nothing shows up
+## Limits
 
-Inline Console never crashes your app or the IDE on its own account. Every failure is caught, the original code or `console` call still runs, and the reason lands in the **Inline Console** tab:
+- `.vue` and `.svelte` files aren't rewritten yet; `.js`, `.jsx`, `.ts` and `.tsx` are.
+- Next.js support has been tested on a fresh Next.js 16 app, not yet on a large real project.
+- Auto-connect needs Node 18.19+ or 20.6+.
 
-- **The tab's title** says the state:
-  - `waiting for a dev server`
-  - `vite connected` / `next.js connected`
-  - `not listening` (the port is taken; the tab says what to do)
-- **`● … connected from <folder> (pid …)`** lines show each dev server or script that reached WebStorm. If yours never appears, check the dev terminal for the `Inline Console` status line.
-- **`⚠ Inline Console problem: …`** lines give the reason something didn't work. Examples:
-  - a file left untouched because rewriting it would break its syntax
-  - a value that couldn't be captured
-  - a batch WebStorm couldn't read
+## Contributing
 
-  Each message shows up to 3 times; everything also goes to `idea.log`.
+Contributions are welcome, big or small:
 
-## Develop
+- **Issues:** report a bug (include the lines from the Inline Console tab) or suggest an idea.
+- **Pull requests:** fixes, docs, new framework support.
+- **Good first areas:**
+  - `.vue` / `.svelte` support
+  - a Gradle build and JetBrains Marketplace publishing
+  - a build script for macOS and Linux
+  - more frameworks (Nuxt, Remix, Astro)
+
+To work on it:
 
 ```bash
-cd js && node test.cjs          # rewriter, serializer, source maps, browser client, Next loader + config, auto-connect
+cd js && node test.cjs          # self-checks for the npm package (prints "ok")
 ```
 
-`build.ps1` also runs the plugin's own self-check: the add, replace and remove logic for the auto-connect line.
+```powershell
+.\webstorm\build.ps1            # builds the plugin and runs its self-check
+```
+
+| Folder | What's inside |
+|---|---|
+| `webstorm/` | The WebStorm plugin (Java) |
+| `js/` | The `inline-console` npm package: Vite plugin, Next.js wrapper, Node preload, auto-connect |
+
+## Support the project
+
+- ⭐ **Star this repo.** It's the easiest way to help.
+- Share it with a WebStorm user who still keeps VS Code open just for Console Ninja.
+
+## License
+
+[MIT](LICENSE)
