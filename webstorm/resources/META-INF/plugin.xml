@@ -1,7 +1,7 @@
 <idea-plugin>
     <id>dev.inlineconsole</id>
     <name>Inline Console</name>
-    <version>0.1.0</version>
+    <version>0.2.0</version>
     <vendor>Inline Console contributors</vendor>
     <description><![CDATA[
       Shows <code>console.log</code>, <code>console.warn</code> and <code>console.error</code> values at the end of
